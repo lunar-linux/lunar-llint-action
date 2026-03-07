@@ -1,0 +1,24 @@
+name: Test Action
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: Build llint from source
+        run: |
+          git clone --depth 1 https://github.com/lunar-linux/lunar.git /tmp/lunar
+          cd /tmp/lunar/tools/llint
+          go build -o /tmp/llint .
+
+      - name: Run tests
+        run: ./tests/test.sh /tmp/llint

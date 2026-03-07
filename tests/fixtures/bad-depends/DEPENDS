@@ -1,0 +1,4 @@
+depends glibc
+if module_installed openssl; then
+  depends openssl
+fi

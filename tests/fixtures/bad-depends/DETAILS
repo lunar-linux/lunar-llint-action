@@ -1,0 +1,12 @@
+          MODULE=bad-depends
+         VERSION=1.0
+          SOURCE=$MODULE-$VERSION.tar.gz
+      SOURCE_VFY=sha256:abc123
+        WEB_SITE=http://example.com
+         ENTERED=20200101
+         UPDATED=20200101
+           SHORT="A module with bad DEPENDS"
+
+cat << EOF
+This module has disallowed bash logic in DEPENDS.
+EOF
