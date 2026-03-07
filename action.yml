@@ -42,6 +42,7 @@ runs:
         tar xJf "/tmp/${asset}" -C /tmp
         mv "/tmp/llint-${tag}-linux-amd64/llint-linux-amd64" /tmp/llint
         chmod +x /tmp/llint
+        /tmp/llint -version 2>/dev/null || echo "llint version: $tag (binary does not support -version)"
 
     - name: Find changed module directories
       id: dirs
