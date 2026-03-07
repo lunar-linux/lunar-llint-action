@@ -2,20 +2,23 @@
 
 GitHub Action to lint Lunar Linux module files using [llint](https://github.com/lunar-linux/lunar).
 
-Automatically detects changed module directories (containing `DETAILS` or `DEPENDS` files) and runs `llint --path` on each. On pull requests, lint errors are posted as a PR comment.
+Automatically detects changed module directories (containing `DETAILS` or `DEPENDS` files) and runs `llint --path` on each.
 
 ## Usage
 
+This action uses a two-workflow design so that lint errors can be posted as PR comments even on fork PRs, without granting write access to untrusted code.
+
+Copy both files from [`examples/`](examples/) into your repo's `.github/workflows/`:
+
+### `.github/workflows/lint.yml` — runs the linter
+
 ```yaml
 name: Lint Modules
+
 on:
   pull_request:
   push:
     branches: [master]
-
-permissions:
-  contents: read
-  pull-requests: write
 
 jobs:
   lint:
@@ -28,8 +31,75 @@ jobs:
       - uses: lunar-linux/lunar-llint-action@v1
 ```
 
+### `.github/workflows/lint-comment.yml` — posts PR comments
+
+```yaml
+name: Lint Comment
+
+on:
+  workflow_run:
+    workflows: [Lint Modules]
+    types: [completed]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  comment:
+    if: >-
+      github.event.workflow_run.event == 'pull_request'
+      && github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download lint output
+        uses: actions/download-artifact@v4
+        with:
+          name: llint-output
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - name: Find PR number
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pr=$(gh api "/repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}" \
+            --jq '.pull_requests[0].number')
+          echo "number=$pr" >> "$GITHUB_OUTPUT"
+
+      - name: Post comment
+        if: steps.pr.outputs.number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          errors=$(grep -vE '^::(group|endgroup)::' llint-output.txt | grep -v '^$' || true)
+
+          cat > /tmp/comment.md <<'COMMENT_EOF'
+          ## llint found issues
+
+          The following lint errors were found in this PR:
+
+          ```
+          COMMENT_EOF
+
+          echo "$errors" >> /tmp/comment.md
+
+          cat >> /tmp/comment.md <<'COMMENT_EOF'
+          ```
+
+          Run `llint --path <module-dir> --fix` locally to auto-fix fixable issues.
+          COMMENT_EOF
+
+          gh pr comment "${{ steps.pr.outputs.number }}" \
+            --repo "${{ github.repository }}" \
+            --body-file /tmp/comment.md
+```
+
 > **Note:** `fetch-depth: 0` is required so the action can diff against the base commit to find changed files.
-> `pull-requests: write` is needed to post lint errors as PR comments. For PRs from forks, GitHub restricts the token to read-only — the comment step is skipped gracefully and lint errors are still visible in the action logs.
+
+### Why two workflows?
+
+PRs from forks get a read-only `GITHUB_TOKEN` — they can't post comments. The `workflow_run` workflow triggers in the base repo's context with write permissions, but never checks out or executes fork code. It only reads the lint output artifact (a text file) and posts it as a comment. This is the [GitHub-recommended pattern](https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows#workflow_run) for safely commenting on fork PRs.
 
 Contributors can fix issues locally by running `llint --path <module-dir> --fix`.
 
@@ -46,5 +116,6 @@ Contributors can fix issues locally by running `llint --path <module-dir> --fix`
 2. Diffs changed files between base and head commits
 3. Deduplicates directories and filters to those containing `DETAILS` or `DEPENDS`
 4. Runs `llint --path <dir>` on each, grouping output per module
-5. On PRs with errors, posts a comment with the lint output
-6. Exits non-zero if any module has lint errors
+5. Uploads lint output as an artifact (on failure)
+6. A separate `workflow_run` workflow picks up the artifact and posts a PR comment
+7. Exits non-zero if any module has lint errors

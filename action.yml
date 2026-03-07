@@ -83,33 +83,16 @@ runs:
 
         cat /tmp/llint-output.txt
 
-    - name: Comment on PR
+    - name: Upload lint output
       if: >-
-        github.event_name == 'pull_request'
+        always()
         && steps.lint.outputs.exit_code != ''
         && steps.lint.outputs.exit_code != '0'
-      shell: bash
-      env:
-        GH_TOKEN: ${{ github.token }}
-      run: |
-        # Strip GitHub Actions ::group:: markers
-        errors=$(grep -vE '^::(group|endgroup)::' /tmp/llint-output.txt | grep -v '^$' || true)
-
-        cat > /tmp/llint-comment.md <<COMMENT_EOF
-        ## llint found issues
-
-        The following lint errors were found in this PR:
-
-        \`\`\`
-        $errors
-        \`\`\`
-
-        Run \`llint --path <module-dir> --fix\` locally to auto-fix fixable issues.
-        COMMENT_EOF
-
-        gh pr comment "${{ github.event.pull_request.number }}" \
-          --repo "${{ github.repository }}" \
-          --body-file /tmp/llint-comment.md || echo "::warning::Could not post PR comment (token may lack pull-requests: write permission for fork PRs)"
+      uses: actions/upload-artifact@v4
+      with:
+        name: llint-output
+        path: /tmp/llint-output.txt
+        retention-days: 1
 
     - name: Fail if lint errors
       if: steps.lint.outputs.exit_code != '' && steps.lint.outputs.exit_code != '0'

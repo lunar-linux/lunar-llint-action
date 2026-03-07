@@ -1,0 +1,22 @@
+# .github/workflows/lint.yml
+#
+# Runs llint on changed module directories. Uses a read-only token,
+# safe for fork PRs. Lint output is uploaded as an artifact for the
+# comment workflow to pick up.
+
+name: Lint Modules
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: lunar-linux/lunar-llint-action@v1
