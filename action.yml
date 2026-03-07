@@ -109,7 +109,7 @@ runs:
 
         gh pr comment "${{ github.event.pull_request.number }}" \
           --repo "${{ github.repository }}" \
-          --body-file /tmp/llint-comment.md
+          --body-file /tmp/llint-comment.md || echo "::warning::Could not post PR comment (token may lack pull-requests: write permission for fork PRs)"
 
     - name: Fail if lint errors
       if: steps.lint.outputs.exit_code != '' && steps.lint.outputs.exit_code != '0'

@@ -29,7 +29,7 @@ jobs:
 ```
 
 > **Note:** `fetch-depth: 0` is required so the action can diff against the base commit to find changed files.
-> `pull-requests: write` is needed to post lint errors as PR comments.
+> `pull-requests: write` is needed to post lint errors as PR comments. For PRs from forks, GitHub restricts the token to read-only — the comment step is skipped gracefully and lint errors are still visible in the action logs.
 
 Contributors can fix issues locally by running `llint --path <module-dir> --fix`.
 
