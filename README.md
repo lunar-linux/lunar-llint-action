@@ -2,7 +2,7 @@
 
 GitHub Action to lint Lunar Linux module files using [llint](https://github.com/lunar-linux/lunar).
 
-Automatically detects changed module directories (containing `DETAILS` or `DEPENDS` files) and runs `llint --path` on each.
+Automatically detects changed module directories (containing `DETAILS` or `DEPENDS` files) and runs `llint --path` on each. On pull requests, lint errors are posted as a PR comment.
 
 ## Usage
 
@@ -12,6 +12,10 @@ on:
   pull_request:
   push:
     branches: [master]
+
+permissions:
+  contents: read
+  pull-requests: write
 
 jobs:
   lint:
@@ -25,6 +29,7 @@ jobs:
 ```
 
 > **Note:** `fetch-depth: 0` is required so the action can diff against the base commit to find changed files.
+> `pull-requests: write` is needed to post lint errors as PR comments.
 
 Contributors can fix issues locally by running `llint --path <module-dir> --fix`.
 
@@ -41,4 +46,5 @@ Contributors can fix issues locally by running `llint --path <module-dir> --fix`
 2. Diffs changed files between base and head commits
 3. Deduplicates directories and filters to those containing `DETAILS` or `DEPENDS`
 4. Runs `llint --path <dir>` on each, grouping output per module
-5. Exits non-zero if any module has lint errors
+5. On PRs with errors, posts a comment with the lint output
+6. Exits non-zero if any module has lint errors
