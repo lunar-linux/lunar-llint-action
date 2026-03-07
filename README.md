@@ -43,6 +43,7 @@ on:
 
 permissions:
   pull-requests: write
+  actions: read
 
 jobs:
   comment:
@@ -63,8 +64,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          pr=$(gh api "/repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}" \
-            --jq '.pull_requests[0].number')
+          head_sha=${{ github.event.workflow_run.head_sha }}
+          pr=$(gh pr list --repo "${{ github.repository }}" --state open \
+            --json number,headRefOid \
+            --jq ".[] | select(.headRefOid == \"$head_sha\") | .number")
           echo "number=$pr" >> "$GITHUB_OUTPUT"
 
       - name: Post comment
