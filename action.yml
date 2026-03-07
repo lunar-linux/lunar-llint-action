@@ -1,0 +1,88 @@
+name: 'Lunar Linux Module Linter'
+description: 'Run llint on changed module directories'
+
+inputs:
+  version:
+    description: 'llint release tag to use (e.g. v50)'
+    required: false
+    default: 'latest'
+  max-line-length:
+    description: 'Maximum line length for heredoc text in DETAILS'
+    required: false
+    default: '120'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Determine llint version
+      id: version
+      shell: bash
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        if [ "$INPUT_VERSION" = "latest" ]; then
+          tag=$(gh release list --repo lunar-linux/lunar --limit 1 --json tagName --jq '.[0].tagName')
+        else
+          tag="$INPUT_VERSION"
+        fi
+        echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+    - name: Download llint
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        tag="${{ steps.version.outputs.tag }}"
+        asset="llint-${tag}-linux-amd64.tar.xz"
+        gh release download "$tag" \
+          --repo lunar-linux/lunar \
+          --pattern "$asset" \
+          --dir /tmp
+        tar xJf "/tmp/${asset}" -C /tmp
+        mv "/tmp/llint-${tag}-linux-amd64/llint-linux-amd64" /tmp/llint
+        chmod +x /tmp/llint
+
+    - name: Find changed module directories
+      id: dirs
+      shell: bash
+      run: |
+        if [ "${{ github.event_name }}" = "pull_request" ]; then
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+        else
+          base="${{ github.event.before }}"
+          head="${{ github.sha }}"
+        fi
+
+        dirs=$(git diff --name-only "$base" "$head" \
+          | xargs -I{} dirname {} \
+          | sort -u \
+          | while read -r d; do
+              [ -f "$d/DETAILS" ] || [ -f "$d/DEPENDS" ] && echo "$d"
+            done)
+
+        if [ -z "$dirs" ]; then
+          echo "No module directories changed."
+          echo "dirs=" >> "$GITHUB_OUTPUT"
+        else
+          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+          echo "dirs<<$EOF" >> "$GITHUB_OUTPUT"
+          echo "$dirs" >> "$GITHUB_OUTPUT"
+          echo "$EOF" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Run llint
+      if: steps.dirs.outputs.dirs != ''
+      shell: bash
+      env:
+        INPUT_MAX_LINE_LENGTH: ${{ inputs.max-line-length }}
+      run: |
+        exit_code=0
+        while IFS= read -r dir; do
+          echo "::group::Linting $dir"
+          /tmp/llint --path "$dir" --max-line-length "$INPUT_MAX_LINE_LENGTH" || exit_code=1
+          echo "::endgroup::"
+        done <<< "${{ steps.dirs.outputs.dirs }}"
+
+        exit "$exit_code"
