@@ -1,16 +1,15 @@
 #!/usr/bin/env bash
 #
-# Local test suite for the lunar-llint GitHub Action.
+# Tests for the lunar-llint-action scripts.
+# Focuses on action logic: directory discovery, dedup, filtering, and runner.
 #
 # Usage:
 #   ./tests/test.sh [path-to-llint]
 #
-# If no path is given, it looks for llint in PATH or builds it from
-# the lunar repo at ../lunar/tools/llint.
-
 set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+ACTION_DIR=$(cd "$SCRIPT_DIR/.." && pwd)
 FIXTURES="$SCRIPT_DIR/fixtures"
 
 passed=0
@@ -22,6 +21,20 @@ total=0
 red()   { printf '\033[1;31m%s\033[0m\n' "$*"; }
 green() { printf '\033[1;32m%s\033[0m\n' "$*"; }
 bold()  { printf '\033[1m%s\033[0m\n' "$*"; }
+
+assert_eq() {
+  local name="$1" expected="$2" actual="$3"
+  total=$((total + 1))
+  if [ "$expected" = "$actual" ]; then
+    green "  PASS: $name"
+    passed=$((passed + 1))
+  else
+    red "  FAIL: $name"
+    red "    expected: $(echo "$expected" | head -5)"
+    red "    actual:   $(echo "$actual" | head -5)"
+    failed=$((failed + 1))
+  fi
+}
 
 assert_exit() {
   local name="$1" expected="$2" actual="$3"
@@ -35,11 +48,11 @@ assert_exit() {
   fi
 }
 
-assert_output_contains() {
+assert_contains() {
   local name="$1" pattern="$2" output="$3"
   total=$((total + 1))
   if echo "$output" | grep -q "$pattern"; then
-    green "  PASS: $name (output contains '$pattern')"
+    green "  PASS: $name"
     passed=$((passed + 1))
   else
     red "  FAIL: $name (output missing '$pattern')"
@@ -47,26 +60,14 @@ assert_output_contains() {
   fi
 }
 
-assert_output_not_contains() {
-  local name="$1" pattern="$2" output="$3"
-  total=$((total + 1))
-  if ! echo "$output" | grep -q "$pattern"; then
-    green "  PASS: $name (output does not contain '$pattern')"
-    passed=$((passed + 1))
-  else
-    red "  FAIL: $name (output unexpectedly contains '$pattern')"
-    failed=$((failed + 1))
-  fi
-}
-
-# --- Find or build llint ----------------------------------------------------
+# --- Find or build llint (needed only for run-llint.sh tests) ---------------
 
 if [ $# -ge 1 ]; then
   LLINT="$1"
 elif command -v llint &>/dev/null; then
   LLINT="llint"
 else
-  LUNAR_LLINT="$SCRIPT_DIR/../../lunar/tools/llint"
+  LUNAR_LLINT="$ACTION_DIR/../lunar/tools/llint"
   if [ -f "$LUNAR_LLINT/go.mod" ]; then
     bold "Building llint from $LUNAR_LLINT ..."
     (cd "$LUNAR_LLINT" && go build -o /tmp/llint-test .)
@@ -80,98 +81,145 @@ fi
 bold "Using llint: $LLINT"
 echo
 
-# --- Test: good module passes -----------------------------------------------
+# =============================================================================
+# find-module-dirs.sh tests
+# =============================================================================
 
-bold "Test: good module should pass with no errors"
-output=$("$LLINT" --path "$FIXTURES/good-module" 2>&1) && rc=0 || rc=$?
-assert_exit "good-module exits 0" 0 "$rc"
-assert_output_not_contains "good-module no error output" "error:" "$output"
+bold "=== find-module-dirs.sh ==="
 echo
 
-# --- Test: bad alignment is detected ----------------------------------------
+# --- Test: deduplicates multiple files in same directory --------------------
 
-bold "Test: bad alignment should report errors"
-output=$("$LLINT" --path "$FIXTURES/bad-alignment" 2>&1) && rc=0 || rc=$?
-assert_exit "bad-alignment exits 1" 1 "$rc"
-assert_output_contains "bad-alignment reports alignment" "not aligned" "$output"
-assert_output_contains "bad-alignment reports missing blank line" "blank line before heredoc" "$output"
+bold "Test: dedup multiple files in same directory"
+result=$(cd "$FIXTURES" && printf '%s\n' \
+  "good-module/DETAILS" \
+  "good-module/DEPENDS" \
+  "good-module/BUILD" \
+  | "$ACTION_DIR/find-module-dirs.sh")
+assert_eq "3 files in one dir yields 1 dir" "good-module" "$result"
 echo
 
-# --- Test: bad alignment is fixable -----------------------------------------
+# --- Test: multiple directories, each listed once ---------------------------
 
-bold "Test: bad alignment should be fixable"
+bold "Test: multiple directories deduplicated"
+result=$(cd "$FIXTURES" && printf '%s\n' \
+  "good-module/DETAILS" \
+  "bad-alignment/DETAILS" \
+  "good-module/DEPENDS" \
+  "bad-depends/DEPENDS" \
+  | "$ACTION_DIR/find-module-dirs.sh")
+line_count=$(echo "$result" | wc -l | tr -d ' ')
+assert_eq "4 files across 3 dirs yields 3 dirs" "3" "$line_count"
+echo
+
+# --- Test: filters out directories without DETAILS or DEPENDS ---------------
+
+bold "Test: filters dirs without module files"
+result=$(cd "$FIXTURES" && printf '%s\n' \
+  "no-module-files/README" \
+  "good-module/DETAILS" \
+  | "$ACTION_DIR/find-module-dirs.sh")
+assert_eq "no-module-files excluded" "good-module" "$result"
+echo
+
+# --- Test: all non-module dirs yields empty output --------------------------
+
+bold "Test: all non-module dirs yields empty output"
+result=$(cd "$FIXTURES" && printf '%s\n' \
+  "no-module-files/README" \
+  "no-module-files/Makefile" \
+  | "$ACTION_DIR/find-module-dirs.sh")
+assert_eq "empty output for non-module dirs" "" "$result"
+echo
+
+# --- Test: handles nested paths correctly -----------------------------------
+
+bold "Test: handles nested section/module paths"
 tmpdir=$(mktemp -d)
-cp -r "$FIXTURES/bad-alignment/"* "$tmpdir/"
-output=$("$LLINT" --path "$tmpdir" --fix --verbose 2>&1) && rc=0 || rc=$?
-assert_exit "bad-alignment --fix exits 0" 0 "$rc"
-assert_output_contains "bad-alignment --fix reports fixes" "fixed:" "$output"
-
-# Verify fixed file passes
-output=$("$LLINT" --path "$tmpdir" 2>&1) && rc=0 || rc=$?
-assert_exit "bad-alignment after fix passes" 0 "$rc"
+mkdir -p "$tmpdir/section/mymod"
+touch "$tmpdir/section/mymod/DETAILS"
+result=$(cd "$tmpdir" && printf '%s\n' \
+  "section/mymod/DETAILS" \
+  "section/mymod/BUILD" \
+  | "$ACTION_DIR/find-module-dirs.sh")
+assert_eq "nested path deduplicated" "section/mymod" "$result"
 rm -rf "$tmpdir"
 echo
 
-# --- Test: bad DEPENDS is detected ------------------------------------------
+# =============================================================================
+# run-llint.sh tests
+# =============================================================================
 
-bold "Test: bad DEPENDS should report errors"
-output=$("$LLINT" --path "$FIXTURES/bad-depends" 2>&1) && rc=0 || rc=$?
-assert_exit "bad-depends exits 1" 1 "$rc"
-assert_output_contains "bad-depends reports bash logic" "bash logic" "$output"
+bold "=== run-llint.sh ==="
 echo
 
-# --- Test: bad DEPENDS is NOT fixable ----------------------------------------
+# --- Test: passes exit 0 for clean module -----------------------------------
 
-bold "Test: bad DEPENDS errors should remain after --fix"
-tmpdir=$(mktemp -d)
-cp -r "$FIXTURES/bad-depends/"* "$tmpdir/"
-output=$("$LLINT" --path "$tmpdir" --fix 2>&1) && rc=0 || rc=$?
-assert_exit "bad-depends --fix still exits 1" 1 "$rc"
-assert_output_contains "bad-depends --fix still reports bash logic" "bash logic" "$output"
-rm -rf "$tmpdir"
+bold "Test: exit 0 for clean module"
+output=$(echo "$FIXTURES/good-module" \
+  | "$ACTION_DIR/run-llint.sh" "$LLINT" 2>&1) && rc=0 || rc=$?
+assert_exit "clean module exits 0" 0 "$rc"
 echo
 
-# --- Test: directory with no module files ------------------------------------
+# --- Test: exits non-zero for bad module ------------------------------------
 
-bold "Test: directory with no module files should pass"
-output=$("$LLINT" --path "$FIXTURES/no-module-files" 2>&1) && rc=0 || rc=$?
-assert_exit "no-module-files exits 0" 0 "$rc"
+bold "Test: exit 1 for bad module"
+output=$(echo "$FIXTURES/bad-depends" \
+  | "$ACTION_DIR/run-llint.sh" "$LLINT" 2>&1) && rc=0 || rc=$?
+assert_exit "bad module exits 1" 1 "$rc"
 echo
 
-# --- Test: --path with invalid directory ------------------------------------
+# --- Test: aggregates — one bad module fails the whole run -------------------
 
-bold "Test: --path with nonexistent directory should fail"
-output=$("$LLINT" --path "/tmp/nonexistent-module-dir" 2>&1) && rc=0 || rc=$?
-assert_exit "nonexistent dir exits 2" 2 "$rc"
+bold "Test: mixed good+bad exits 1"
+output=$(printf '%s\n' "$FIXTURES/good-module" "$FIXTURES/bad-depends" \
+  | "$ACTION_DIR/run-llint.sh" "$LLINT" 2>&1) && rc=0 || rc=$?
+assert_exit "mixed dirs exits 1" 1 "$rc"
+assert_contains "reports bad-depends errors" "bash logic" "$output"
 echo
 
-# --- Test: dir-dedup simulation ----------------------------------------------
+# --- Test: all good modules exit 0 -----------------------------------------
 
-bold "Test: directory deduplication logic"
-# Simulate the dedup logic from the action
-changed_files="zlocal/testmod/DETAILS
-zlocal/testmod/DEPENDS
-zlocal/testmod/BUILD
-zlocal/other/DETAILS"
+bold "Test: multiple good modules exit 0"
+output=$(printf '%s\n' "$FIXTURES/good-module" "$FIXTURES/good-module" \
+  | "$ACTION_DIR/run-llint.sh" "$LLINT" 2>&1) && rc=0 || rc=$?
+assert_exit "all good exits 0" 0 "$rc"
+echo
 
-dirs=$(echo "$changed_files" \
-  | xargs -I{} dirname {} \
-  | sort -u)
+# --- Test: empty input exits 0 (no dirs to lint) ---------------------------
 
-expected="zlocal/other
-zlocal/testmod"
+bold "Test: empty input exits 0"
+output=$(echo "" \
+  | "$ACTION_DIR/run-llint.sh" "$LLINT" 2>&1) && rc=0 || rc=$?
+assert_exit "empty input exits 0" 0 "$rc"
+echo
 
+# --- Test: passes extra flags through to llint ------------------------------
+
+bold "Test: passes --max-line-length flag"
+output=$(echo "$FIXTURES/good-module" \
+  | "$ACTION_DIR/run-llint.sh" "$LLINT" --max-line-length 80 2>&1) && rc=0 || rc=$?
+assert_exit "extra flags accepted" 0 "$rc"
+echo
+
+# --- Test: missing llint binary exits 2 ------------------------------------
+
+bold "Test: missing llint binary fails"
+output=$(echo "$FIXTURES/good-module" \
+  | "$ACTION_DIR/run-llint.sh" /tmp/nonexistent-llint 2>&1) && rc=0 || rc=$?
 total=$((total + 1))
-if [ "$dirs" = "$expected" ]; then
-  green "  PASS: dedup produces 2 unique dirs from 4 files"
+if [ "$rc" -ne 0 ]; then
+  green "  PASS: missing binary exits non-zero (exit $rc)"
   passed=$((passed + 1))
 else
-  red "  FAIL: dedup expected 2 dirs, got: $dirs"
+  red "  FAIL: missing binary should exit non-zero"
   failed=$((failed + 1))
 fi
 echo
 
-# --- Summary ----------------------------------------------------------------
+# =============================================================================
+# Summary
+# =============================================================================
 
 bold "Results: $passed/$total passed, $failed failed"
 if [ "$failed" -gt 0 ]; then

@@ -56,11 +56,7 @@ runs:
         fi
 
         dirs=$(git diff --name-only "$base" "$head" \
-          | xargs -I{} dirname {} \
-          | sort -u \
-          | while read -r d; do
-              [ -f "$d/DETAILS" ] || [ -f "$d/DEPENDS" ] && echo "$d"
-            done)
+          | "${{ github.action_path }}/find-module-dirs.sh")
 
         if [ -z "$dirs" ]; then
           echo "No module directories changed."
@@ -75,14 +71,7 @@ runs:
     - name: Run llint
       if: steps.dirs.outputs.dirs != ''
       shell: bash
-      env:
-        INPUT_MAX_LINE_LENGTH: ${{ inputs.max-line-length }}
       run: |
-        exit_code=0
-        while IFS= read -r dir; do
-          echo "::group::Linting $dir"
-          /tmp/llint --path "$dir" --max-line-length "$INPUT_MAX_LINE_LENGTH" || exit_code=1
-          echo "::endgroup::"
-        done <<< "${{ steps.dirs.outputs.dirs }}"
-
-        exit "$exit_code"
+        echo "${{ steps.dirs.outputs.dirs }}" \
+          | "${{ github.action_path }}/run-llint.sh" /tmp/llint \
+              --max-line-length "${{ inputs.max-line-length }}"
