@@ -19,12 +19,18 @@ shift
 
 exit_code=0
 failed_dirs=()
+declare -A failed_output
 while IFS= read -r dir; do
   [ -z "$dir" ] && continue
   echo "::group::Linting $dir"
-  if ! "$llint" --path "$dir" "$@"; then
+  output=$("$llint" --path "$dir" "$@" 2>&1) && rc=0 || rc=$?
+  if [ -n "$output" ]; then
+    echo "$output"
+  fi
+  if [ "$rc" -ne 0 ]; then
     exit_code=1
     failed_dirs+=("$dir")
+    failed_output["$dir"]="$output"
   fi
   echo "::endgroup::"
 done
@@ -32,11 +38,13 @@ done
 if [ "$exit_code" -ne 0 ]; then
   echo ""
   echo "❌ Lint errors found in ${#failed_dirs[@]} module(s):"
+  echo ""
   for dir in "${failed_dirs[@]}"; do
     echo "::error::Lint failed: $dir"
-    echo "  • $dir"
+    echo "  📁 $dir"
+    echo "${failed_output["$dir"]}" | sed 's/^/    /'
+    echo ""
   done
-  echo ""
   echo "Run 'llint --path <module-dir> --fix' locally to auto-fix fixable issues."
 fi
 

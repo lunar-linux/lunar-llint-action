@@ -78,11 +78,10 @@ runs:
         echo "${{ steps.dirs.outputs.dirs }}" \
           | "${{ github.action_path }}/run-llint.sh" /tmp/llint \
               --max-line-length "${{ inputs.max-line-length }}" \
-              > /tmp/llint-output.txt 2>&1
-        echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+              2>&1 | tee /tmp/llint-output.txt
+        pipes=("${PIPESTATUS[@]}")
+        echo "exit_code=${pipes[1]}" >> "$GITHUB_OUTPUT"
         set -e
-
-        cat /tmp/llint-output.txt
 
     - name: Upload lint output
       if: >-
