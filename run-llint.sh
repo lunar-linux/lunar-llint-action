@@ -24,13 +24,12 @@ while IFS= read -r dir; do
   [ -z "$dir" ] && continue
   echo "::group::Linting $dir"
   output=$("$llint" --path "$dir" "$@" 2>&1) && rc=0 || rc=$?
-  if [ -n "$output" ]; then
-    echo "$output"
-  fi
   if [ "$rc" -ne 0 ]; then
     exit_code=1
     failed_dirs+=("$dir")
     failed_output["$dir"]="$output"
+  elif [ -n "$output" ]; then
+    echo "$output"
   fi
   echo "::endgroup::"
 done
