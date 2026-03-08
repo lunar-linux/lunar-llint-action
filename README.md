@@ -1,6 +1,6 @@
 # lunar-llint-action
 
-GitHub Action to lint Lunar Linux module files using [llint](https://github.com/lunar-linux/lunar).
+GitHub Action to lint Lunar Linux module files using [llint](https://github.com/lunar-linux/lunar-tools).
 
 Automatically detects changed module directories (containing `DETAILS` or `DEPENDS` files) and runs `llint --path` on each.
 
@@ -110,12 +110,12 @@ Contributors can fix issues locally by running `llint --path <module-dir> --fix`
 
 | Input             | Default  | Description                                    |
 |-------------------|----------|------------------------------------------------|
-| `version`         | `latest` | llint release tag to use (e.g. `v50`)          |
+| `version`         | `latest` | llint release tag to use (e.g. `2026.2`)       |
 | `max-line-length` | `120`    | Maximum line length for heredoc text in DETAILS |
 
 ## How it works
 
-1. Downloads the `llint` binary from the [lunar releases](https://github.com/lunar-linux/lunar/releases)
+1. Downloads the `llint` binary from the [lunar-tools releases](https://github.com/lunar-linux/lunar-tools/releases)
 2. Diffs changed files between base and head commits
 3. Deduplicates directories and filters to those containing `DETAILS` or `DEPENDS`
 4. Runs `llint --path <dir>` on each, grouping output per module

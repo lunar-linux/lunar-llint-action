@@ -3,7 +3,7 @@ description: 'Run llint on changed module directories'
 
 inputs:
   version:
-    description: 'llint release tag to use (e.g. v50)'
+    description: 'llint release tag to use (e.g. 2026.2)'
     required: false
     default: 'latest'
   max-line-length:
@@ -22,7 +22,7 @@ runs:
         GH_TOKEN: ${{ github.token }}
       run: |
         if [ "$INPUT_VERSION" = "latest" ]; then
-          tag=$(gh release list --repo lunar-linux/lunar --limit 1 --json tagName --jq '.[0].tagName')
+          tag=$(gh release list --repo lunar-linux/lunar-tools --limit 1 --json tagName --jq '.[0].tagName')
         else
           tag="$INPUT_VERSION"
         fi
@@ -36,7 +36,7 @@ runs:
         tag="${{ steps.version.outputs.tag }}"
         asset="llint-${tag}-linux-amd64.tar.xz"
         gh release download "$tag" \
-          --repo lunar-linux/lunar \
+          --repo lunar-linux/lunar-tools \
           --pattern "$asset" \
           --dir /tmp
         tar xJf "/tmp/${asset}" -C /tmp

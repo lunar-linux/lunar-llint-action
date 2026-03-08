@@ -10,15 +10,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v5
-        with:
-          go-version: stable
-
-      - name: Build llint from source
+      - name: Download llint
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          git clone --depth 1 https://github.com/lunar-linux/lunar.git /tmp/lunar
-          cd /tmp/lunar/tools/llint
-          go build -o /tmp/llint .
+          tag=$(gh release list --repo lunar-linux/lunar-tools --limit 1 --json tagName --jq '.[0].tagName')
+          asset="llint-${tag}-linux-amd64.tar.xz"
+          gh release download "$tag" \
+            --repo lunar-linux/lunar-tools \
+            --pattern "$asset" \
+            --dir /tmp
+          tar xJf "/tmp/${asset}" -C /tmp
+          mv "/tmp/llint-${tag}-linux-amd64/llint-linux-amd64" /tmp/llint
+          chmod +x /tmp/llint
 
       - name: Run tests
         run: ./tests/test.sh /tmp/llint
