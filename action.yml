@@ -56,7 +56,7 @@ runs:
           head="${{ github.sha }}"
         fi
 
-        dirs=$(git diff --name-only "$base" "$head" \
+        dirs=$(git diff --name-only "$base"..."$head" \
           | "${{ github.action_path }}/find-module-dirs.sh")
 
         if [ -z "$dirs" ]; then
